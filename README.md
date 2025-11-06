@@ -2,16 +2,6 @@
 
 Stella Sora API is a Go-powered service that exposes game data through a clean JSON interface backed by MongoDB. It provides lightweight list endpoints for quick lookups and dedicated detail routes for heavier payloads.
 
-## Configuration
-
-Runtime settings live in `config.yaml`. By default the service expects:
-
-- `server.addr`: `:8080`
-- `mongo.uri`: `mongodb://localhost:27017`
-- `mongo.database`: `stella-sora`
-
-Feel free to adapt these values to your deployment environment.
-
 ## Available Routes
 
 Base path is `/stella/`. The status endpoint acts as the index and is not listed in its own payload.
