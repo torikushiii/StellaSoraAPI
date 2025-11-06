@@ -23,7 +23,7 @@ Base path is `/stella/`. The status endpoint acts as the index and is not listed
 | `GET /stella/character/{idOrName}` | Full character document (includes stats, skills, upgrades, etc.). |
 | `GET /stella/discs` | Disc summaries (id, name, star, element). |
 | `GET /stella/disc/{idOrName}` | Full disc record (tags, skills, stats, upgrades, duplicates). |
-| `GET /stella/banners` | Banner data with rate-up entries (category and weight removed per spec). |
+| `GET /stella/banners` | Banner data with rate-up entries. |
 
 Common query parameters:
 
