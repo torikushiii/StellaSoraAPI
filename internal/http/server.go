@@ -3,6 +3,7 @@ package httpserver
 import (
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ const (
 type Server struct {
 	mux      *http.ServeMux
 	handlers handlers.Set
+	logger   *log.Logger
 }
 
 func New(appInstance *app.App) *Server {
@@ -32,6 +34,7 @@ func New(appInstance *app.App) *Server {
 	srv := &Server{
 		mux:      mux,
 		handlers: handlerSet,
+		logger:   log.New(os.Stdout, "", log.LstdFlags),
 	}
 
 	srv.registerRoutes()
@@ -53,9 +56,8 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 
-		log.Printf(
-			"%s %s%s%s %s%d%s %s %.2fms",
-			time.Now().Format("2006/01/02 15:04:05"),
+		s.logger.Printf(
+			"%s%s%s %s%d%s %s %.2fms",
 			methodColor(r.Method), r.Method, colorReset,
 			statusColor(status), status, colorReset,
 			r.URL.Path,
