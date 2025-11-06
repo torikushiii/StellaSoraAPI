@@ -74,6 +74,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /stella/discs", s.handlers.Discs)
 	s.mux.HandleFunc("GET /stella/disc/{identifier}", s.handlers.DiscDetail)
 	s.mux.HandleFunc("GET /stella/banners", s.handlers.Banner)
+	s.mux.HandleFunc("GET /stella/events", s.handlers.Events)
 }
 
 type responseRecorder struct {

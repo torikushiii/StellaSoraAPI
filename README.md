@@ -14,6 +14,7 @@ Base path is `/stella/`. The status endpoint acts as the index and is not listed
 | `GET /stella/discs` | Disc summaries (id, name, star, element). |
 | `GET /stella/disc/{idOrName}` | Full disc record (tags, skills, stats, upgrades, duplicates). |
 | `GET /stella/banners` | Banner data with rate-up entries. |
+| `GET /stella/events` | Event schedule with timing windows and featured rewards. |
 
 Common query parameters:
 

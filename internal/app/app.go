@@ -35,6 +35,7 @@ func New(cfg Config) *App {
 			"/stella/discs",
 			"/stella/disc/{idOrName}",
 			"/stella/banners",
+			"/stella/events",
 		},
 	}
 }
