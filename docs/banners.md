@@ -6,7 +6,7 @@ Add `?lang=JP` or similar to change localisation (defaults to `EN`).
 
 ## GET `/stella/banners`
 
-Returns banner metadata and rate-up pools.
+Returns banner metadata grouped by lifecycle and rate-up pools.
 
 ```bash
 curl https://api.ennead.cc/stella/banners?lang=EN
@@ -15,68 +15,71 @@ curl https://api.ennead.cc/stella/banners?lang=EN
 Example excerpt:
 
 ```json
-[
-  {
-    "id": 10119,
-    "name": "A Fateful Encounter",
-    "startTime": "2025-11-11T12:00:00+08:00",
-    "endTime": "2025-12-02T03:59:59+08:00",
-    "rateUp": {
-      "fiveStar": {
-        "packageId": 1011911,
-        "entries": [
-          {
-            "id": 119,
-            "name": "Nanoha"
-          }
-        ]
-      },
-      "fourStar": {
-        "packageId": 1011912,
-        "entries": [
-          {
-            "id": 107,
-            "name": "Tilia"
-          },
-          {
-            "id": 108,
-            "name": "Kasimira"
-          }
-        ]
+{
+  "current": [
+    {
+      "id": 10119,
+      "name": "A Fateful Encounter",
+      "bannerType": "Limited Trekker Banner",
+      "startTime": "2025-11-11T12:00:00+08:00",
+      "endTime": "2025-12-02T03:59:59+08:00",
+      "rateUp": {
+        "fiveStar": {
+          "packageId": 1011911,
+          "entries": [
+            {
+              "id": 119,
+              "name": "Nanoha"
+            }
+          ]
+        },
+        "fourStar": {
+          "packageId": 1011912,
+          "entries": [
+            {
+              "id": 107,
+              "name": "Tilia"
+            },
+            {
+              "id": 108,
+              "name": "Kasimira"
+            }
+          ]
+        }
       }
     }
-  },
-  {
-    "id": 20119,
-    "name": "A Heart-Tuned Melody",
-    "startTime": "2025-11-11T12:00:00+08:00",
-    "endTime": "2025-12-02T03:59:59+08:00",
-    "rateUp": {
-      "fiveStar": {
-        "packageId": 2011911,
-        "entries": [
-          {
-            "id": 214028,
-            "name": "Daylight Garden"
-          }
-        ]
-      },
-      "fourStar": {
-        "packageId": 2011912,
-        "entries": [
-          {
-            "id": 213008,
-            "name": "Tranquil Retreat"
-          },
-          {
-            "id": 213005,
-            "name": "★Bam Bam Girl★"
-          }
-        ]
+  ],
+  "upcoming": [
+    {
+      "id": 20155,
+      "name": "Tide to the Full Moon",
+      "bannerType": "Limited Disc Banner",
+      "startTime": "2025-10-28T12:00:00+08:00",
+      "endTime": "2025-11-18T03:59:59+08:00",
+      "rateUp": {
+        "fiveStar": {
+          "packageId": 2015511,
+          "entries": [
+            {
+              "id": 214541,
+              "name": "Celestial Sonata"
+            }
+          ]
+        },
+        "fourStar": {
+          "packageId": 2015512,
+          "entries": [
+            {
+              "id": 213214,
+              "name": "Aurora Cascade"
+            }
+          ]
+        }
       }
     }
-  }
-]
+  ],
+  "ended": []
+}
 ```
 
 ## Errors

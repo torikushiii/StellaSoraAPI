@@ -23,11 +23,12 @@ type bannerDocument struct {
 }
 
 type bannerEntry struct {
-	ID     int             `bson:"id" json:"id"`
-	Name   string          `bson:"name" json:"name"`
-	Start  *string         `bson:"startTime" json:"startTime"`
-	End    *string         `bson:"endTime" json:"endTime"`
-	RateUp bannerRateUpSet `bson:"rateUp" json:"rateUp"`
+	ID         int             `bson:"id" json:"id"`
+	Name       string          `bson:"name" json:"name"`
+	BannerType *string         `bson:"bannerType" json:"bannerType"`
+	Start      *string         `bson:"startTime" json:"startTime"`
+	End        *string         `bson:"endTime" json:"endTime"`
+	RateUp     bannerRateUpSet `bson:"rateUp" json:"rateUp"`
 }
 
 type bannerRateUpSet struct {
@@ -43,6 +44,12 @@ type bannerRateUpPool struct {
 type bannerFocusEntry struct {
 	ID   int     `bson:"id" json:"id"`
 	Name *string `bson:"name" json:"name"`
+}
+
+type groupedBanners struct {
+	Current  []bannerEntry `json:"current"`
+	Upcoming []bannerEntry `json:"upcoming"`
+	Ended    []bannerEntry `json:"ended"`
 }
 
 func New(appInstance *app.App) http.HandlerFunc {
@@ -106,10 +113,51 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	response := categorizeBanners(results, time.Now().UTC())
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(results); err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
+}
+
+func categorizeBanners(entries []bannerEntry, reference time.Time) groupedBanners {
+	grouped := groupedBanners{}
+
+	for _, entry := range entries {
+		start := parseTimestamp(entry.Start)
+		end := parseTimestamp(entry.End)
+
+		switch {
+		case end != nil && reference.After(*end):
+			grouped.Ended = append(grouped.Ended, entry)
+		case start != nil && reference.Before(*start):
+			grouped.Upcoming = append(grouped.Upcoming, entry)
+		default:
+			grouped.Current = append(grouped.Current, entry)
+		}
+	}
+
+	return grouped
+}
+
+func parseTimestamp(raw *string) *time.Time {
+	if raw == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		log.Printf("banner: failed to parse time %q: %v", trimmed, err)
+		return nil
+	}
+
+	return &parsed
 }
 
 func writeServerError(w http.ResponseWriter, err error) {
