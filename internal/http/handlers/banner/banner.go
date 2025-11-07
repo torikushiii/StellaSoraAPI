@@ -122,7 +122,11 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func categorizeBanners(entries []bannerEntry, reference time.Time) groupedBanners {
-	grouped := groupedBanners{}
+	grouped := groupedBanners{
+		Current:  make([]bannerEntry, 0),
+		Upcoming: make([]bannerEntry, 0),
+		Ended:    make([]bannerEntry, 0),
+	}
 
 	for _, entry := range entries {
 		start := parseTimestamp(entry.Start)

@@ -12,7 +12,7 @@ Returns banner metadata grouped by lifecycle and rate-up pools.
 curl https://api.ennead.cc/stella/banners?lang=EN
 ```
 
-Example excerpt:
+Example excerpt (empty lifecycle buckets are returned as empty arrays):
 
 ```json
 {
