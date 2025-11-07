@@ -30,12 +30,39 @@ type eventEntry struct {
 	End         *string       `bson:"endTime" json:"endTime"`
 	ClaimEnd    *string       `bson:"claimEndTime" json:"claimEndTime"`
 	Rewards     []eventReward `bson:"rewards" json:"rewards"`
+	Shops       []eventShop   `bson:"shops" json:"shops"`
 }
 
 type eventReward struct {
 	ID       int     `bson:"id" json:"id"`
 	Name     *string `bson:"name" json:"name"`
 	Category string  `bson:"category" json:"category"`
+}
+
+type eventShop struct {
+	ID       int               `bson:"id" json:"id"`
+	Name     *string           `bson:"name" json:"name"`
+	Currency *eventItemSummary `bson:"currency" json:"currency"`
+	Goods    []eventShopGood   `bson:"goods" json:"goods"`
+}
+
+type eventShopGood struct {
+	ID          int               `bson:"id" json:"id"`
+	Order       *int              `bson:"order" json:"order"`
+	Name        *string           `bson:"name" json:"name"`
+	Description *string           `bson:"description" json:"description"`
+	ItemID      *int              `bson:"itemId" json:"itemId"`
+	Quantity    *int              `bson:"quantity" json:"quantity"`
+	Price       *int              `bson:"price" json:"price"`
+	Currency    *eventItemSummary `bson:"currency" json:"currency"`
+	Limit       *int              `bson:"limit" json:"limit"`
+}
+
+type eventItemSummary struct {
+	ItemID      int     `bson:"itemId" json:"itemId"`
+	Name        *string `bson:"name" json:"name"`
+	Description *string `bson:"description" json:"description"`
+	Flavor      *string `bson:"flavor" json:"flavor"`
 }
 
 func New(appInstance *app.App) http.HandlerFunc {

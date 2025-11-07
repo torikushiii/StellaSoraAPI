@@ -39,6 +39,52 @@ Example excerpt:
         "name": "Cerulean Ticket",
         "category": "item"
       }
+    ],
+    "shops": [
+      {
+        "id": 1001,
+        "name": "Shop 1",
+        "currency": {
+          "itemId": 73101,
+          "name": "Squid Rice Cracker",
+          "description": "Currency earned via active participation in the event: Daring Adventure! The Ghost Ship Haunts the Deep. Can be used to redeem items in the Event Shop.",
+          "flavor": "How many of these squid rice crackers she made can you eat in one go?"
+        },
+        "goods": [
+          {
+            "id": 100101,
+            "order": 1,
+            "name": "Summer Sanctuary",
+            "description": "A Runic Disc titled [Summer Sanctuary]. It can unleash great power.",
+            "itemId": 214039,
+            "quantity": 1,
+            "price": 8000,
+            "currency": {
+              "itemId": 73101,
+              "name": "Squid Rice Cracker",
+              "description": "Currency earned via active participation in the event: Daring Adventure! The Ghost Ship Haunts the Deep. Can be used to redeem items in the Event Shop.",
+              "flavor": "How many of these squid rice crackers she made can you eat in one go?"
+            },
+            "limit": 1
+          },
+          {
+            "id": 100104,
+            "order": 4,
+            "name": "Cerulean Ticket",
+            "description": "A certificate used for recruiting in Limited Trekker Banner.",
+            "itemId": 502,
+            "quantity": 1,
+            "price": 500,
+            "currency": {
+              "itemId": 73101,
+              "name": "Squid Rice Cracker",
+              "description": "Currency earned via active participation in the event: Daring Adventure! The Ghost Ship Haunts the Deep. Can be used to redeem items in the Event Shop.",
+              "flavor": "How many of these squid rice crackers she made can you eat in one go?"
+            },
+            "limit": 5
+          }
+        ]
+      }
     ]
   }
 ]
