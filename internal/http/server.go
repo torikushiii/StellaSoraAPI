@@ -55,13 +55,23 @@ func (s *Server) Handler() http.Handler {
 		if status == http.StatusNotFound && !strings.HasPrefix(r.URL.Path, "/stella") {
 			return
 		}
+		ua := r.Header.Get("User-Agent")
+		if ua == "" {
+			ua = "-"
+		}
+
+		path := r.URL.Path
+		if raw := r.URL.RawQuery; raw != "" {
+			path = path + "?" + raw
+		}
 
 		s.logger.Printf(
-			"%s%s%s %s%d%s %s %.2fms",
+			"%s%s%s %s%d%s %s %.2fms %q",
 			methodColor(r.Method), r.Method, colorReset,
 			statusColor(status), status, colorReset,
-			r.URL.Path,
+			path,
 			elapsedMillis,
+			ua,
 		)
 	})
 }
