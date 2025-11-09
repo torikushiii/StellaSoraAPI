@@ -10,6 +10,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
+	"ss-api/internal/alias"
 	"ss-api/internal/app"
 )
 
@@ -28,7 +29,22 @@ type bannerEntry struct {
 	BannerType *string         `bson:"bannerType" json:"bannerType"`
 	Start      *string         `bson:"startTime" json:"startTime"`
 	End        *string         `bson:"endTime" json:"endTime"`
+	Permanent  bool            `json:"permanent,omitempty"`
+	Assets     *bannerAssets   `bson:"textures" json:"assets,omitempty"`
 	RateUp     bannerRateUpSet `bson:"rateUp" json:"rateUp"`
+}
+
+type bannerAssets struct {
+	TabIcon  *string            `bson:"tabIcon" json:"tabIcon"`
+	Banner   *string            `bson:"banner" json:"banner"`
+	Cover    *string            `bson:"cover" json:"cover"`
+	friendly bannerAssetAliases `bson:"friendly" json:"-"`
+}
+
+type bannerAssetAliases struct {
+	TabIcon string `bson:"tabIcon"`
+	Banner  string `bson:"banner"`
+	Cover   string `bson:"cover"`
 }
 
 type bannerRateUpSet struct {
@@ -47,9 +63,10 @@ type bannerFocusEntry struct {
 }
 
 type groupedBanners struct {
-	Current  []bannerEntry `json:"current"`
-	Upcoming []bannerEntry `json:"upcoming"`
-	Ended    []bannerEntry `json:"ended"`
+	Current   []bannerEntry `json:"current"`
+	Permanent []bannerEntry `json:"permanent"`
+	Upcoming  []bannerEntry `json:"upcoming"`
+	Ended     []bannerEntry `json:"ended"`
 }
 
 func New(appInstance *app.App) http.HandlerFunc {
@@ -100,7 +117,11 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		results = append(results, doc.Entries...)
+		for _, entry := range doc.Entries {
+			entry.Assets = entry.Assets.normalize()
+			entry.Permanent = entry.Start == nil && entry.End == nil
+			results = append(results, entry)
+		}
 	}
 
 	if err := cursor.Err(); err != nil {
@@ -123,12 +144,18 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 
 func categorizeBanners(entries []bannerEntry, reference time.Time) groupedBanners {
 	grouped := groupedBanners{
-		Current:  make([]bannerEntry, 0),
-		Upcoming: make([]bannerEntry, 0),
-		Ended:    make([]bannerEntry, 0),
+		Current:   make([]bannerEntry, 0),
+		Permanent: make([]bannerEntry, 0),
+		Upcoming:  make([]bannerEntry, 0),
+		Ended:     make([]bannerEntry, 0),
 	}
 
 	for _, entry := range entries {
+		if entry.Permanent {
+			grouped.Permanent = append(grouped.Permanent, entry)
+			continue
+		}
+
 		start := parseTimestamp(entry.Start)
 		end := parseTimestamp(entry.End)
 
@@ -143,6 +170,39 @@ func categorizeBanners(entries []bannerEntry, reference time.Time) groupedBanner
 	}
 
 	return grouped
+}
+
+func (a *bannerAssets) normalize() *bannerAssets {
+	if a == nil {
+		return nil
+	}
+
+	normalized := *a
+	normalized.TabIcon = resolveBannerAsset(normalized.friendly.TabIcon, normalized.TabIcon)
+	normalized.Banner = resolveBannerAsset(normalized.friendly.Banner, normalized.Banner)
+	normalized.Cover = resolveBannerAsset(normalized.friendly.Cover, normalized.Cover)
+
+	return &normalized
+}
+
+func resolveBannerAsset(friendlyAlias string, raw *string) *string {
+	var path string
+
+	switch {
+	case friendlyAlias != "":
+		path = alias.PathFromAlias(friendlyAlias)
+	case raw != nil:
+		path = alias.PathFromSource(*raw)
+	default:
+		return nil
+	}
+
+	if path == "" {
+		return nil
+	}
+
+	val := path
+	return &val
 }
 
 func parseTimestamp(raw *string) *time.Time {

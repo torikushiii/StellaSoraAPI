@@ -13,14 +13,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/bsontype"
 
+	"ss-api/internal/alias"
 	"ss-api/internal/app"
 )
 
 type Handler struct {
-	app    *app.App
-	dbName string
-	omit   map[string]struct{}
-	order  []string
+	app             *app.App
+	dbName          string
+	omit            map[string]struct{}
+	order           []string
+	icon            bool
+	flattenTextures bool
 }
 
 func New(appInstance *app.App) http.HandlerFunc {
@@ -35,24 +38,31 @@ func New(appInstance *app.App) http.HandlerFunc {
 			"dupe":            {},
 			"upgrades":        {},
 		},
+		true,
+		false,
 	)
 
 	return h.handleList
 }
 
 func NewDetail(appInstance *app.App) http.HandlerFunc {
-	h := newHandler(appInstance, nil)
+	h := newHandler(appInstance, nil, true, true)
 	return h.handleDetail
 }
 
-func newHandler(appInstance *app.App, omit map[string]struct{}) Handler {
+func newHandler(appInstance *app.App, omit map[string]struct{}, includeIcon bool, flattenTextures bool) Handler {
 	return Handler{
-		app:    appInstance,
-		dbName: appInstance.DatabaseName(),
-		omit:   omit,
+		app:             appInstance,
+		dbName:          appInstance.DatabaseName(),
+		omit:            omit,
+		icon:            includeIcon,
+		flattenTextures: flattenTextures,
 		order: []string{
 			"id",
 			"name",
+			"icon",
+			"background",
+			"variants",
 			"star",
 			"element",
 			"tag",
@@ -309,6 +319,7 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	}
 
 	pairs := make([]keyValue, 0, len(elements))
+	var textures textureBundle
 
 	for _, elem := range elements {
 		key := elem.Key()
@@ -321,10 +332,27 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 			return orderedDocument{}, err
 		}
 
+		if key == "textures" {
+			if doc, ok := value.(orderedDocument); ok {
+				textures = buildDiscTextureBundle(doc)
+			}
+			continue
+		}
+
 		pairs = append(pairs, keyValue{key: key, value: value})
 	}
 
+	if h.flattenTextures && len(textures.pairs) > 0 {
+		pairs = append(pairs, textures.pairs...)
+	}
+
 	ordered := h.reorderPairs(pairs)
+
+	if h.icon && !h.flattenTextures {
+		if textures.icon != "" {
+			ordered = insertIconField(ordered, textures.icon)
+		}
+	}
 
 	return orderedDocument{pairs: ordered}, nil
 }
@@ -384,6 +412,135 @@ func (h Handler) reorderPairs(pairs []keyValue) []keyValue {
 	}
 
 	return ordered
+}
+
+type textureBundle struct {
+	icon  string
+	pairs []keyValue
+}
+
+func buildDiscTextureBundle(doc orderedDocument) textureBundle {
+	friendlyDoc, hasFriendly := lookupOrderedDocument(doc, "friendly")
+	bundle := textureBundle{}
+
+	if icon := resolveTexturePath(doc, friendlyDoc, hasFriendly, "icon"); icon != "" {
+		bundle.icon = icon
+		bundle.pairs = append(bundle.pairs, keyValue{key: "icon", value: icon})
+	}
+
+	if background := resolveTexturePath(doc, friendlyDoc, hasFriendly, "background"); background != "" {
+		bundle.pairs = append(bundle.pairs, keyValue{key: "background", value: background})
+	}
+
+	if variants := buildVariantDocument(doc, friendlyDoc, hasFriendly); len(variants.pairs) > 0 {
+		bundle.pairs = append(bundle.pairs, keyValue{key: "variants", value: variants})
+	}
+
+	return bundle
+}
+
+func resolveTexturePath(primary orderedDocument, friendlyDoc orderedDocument, hasFriendly bool, key string) string {
+	if hasFriendly {
+		if aliasValue, ok := lookupString(friendlyDoc, key); ok {
+			if path := alias.PathFromAlias(aliasValue); path != "" {
+				return path
+			}
+		}
+	}
+
+	if raw, ok := lookupString(primary, key); ok {
+		if path := alias.PathFromSource(raw); path != "" {
+			return path
+		}
+	}
+
+	return ""
+}
+
+func buildVariantDocument(primary orderedDocument, friendlyDoc orderedDocument, hasFriendly bool) orderedDocument {
+	if hasFriendly {
+		if doc, ok := lookupOrderedDocument(friendlyDoc, "variants"); ok {
+			return pathifyOrderedDocumentWith(doc, alias.PathFromAlias)
+		}
+	}
+
+	if doc, ok := lookupOrderedDocument(primary, "variants"); ok {
+		return pathifyOrderedDocumentWith(doc, alias.PathFromSource)
+	}
+
+	return orderedDocument{}
+}
+
+func pathifyOrderedDocumentWith(doc orderedDocument, convert func(string) string) orderedDocument {
+	if len(doc.pairs) == 0 {
+		return doc
+	}
+
+	pairs := copyKeyValues(doc.pairs)
+
+	for i, kv := range pairs {
+		switch v := kv.value.(type) {
+		case string:
+			pairs[i].value = convert(v)
+		case orderedDocument:
+			pairs[i].value = pathifyOrderedDocumentWith(v, convert)
+		}
+	}
+
+	return orderedDocument{pairs: pairs}
+}
+
+func lookupOrderedDocument(doc orderedDocument, key string) (orderedDocument, bool) {
+	for _, kv := range doc.pairs {
+		if kv.key == key {
+			if sub, ok := kv.value.(orderedDocument); ok {
+				return sub, true
+			}
+			break
+		}
+	}
+	return orderedDocument{}, false
+}
+
+func lookupString(doc orderedDocument, key string) (string, bool) {
+	for _, kv := range doc.pairs {
+		if kv.key == key {
+			if str, ok := kv.value.(string); ok && str != "" {
+				return str, true
+			}
+			break
+		}
+	}
+	return "", false
+}
+
+func copyKeyValues(src []keyValue) []keyValue {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]keyValue, len(src))
+	copy(dst, src)
+	return dst
+}
+
+func insertIconField(pairs []keyValue, icon string) []keyValue {
+	if icon == "" {
+		return pairs
+	}
+
+	iconKV := keyValue{key: "icon", value: icon}
+
+	for i, kv := range pairs {
+		if kv.key == "name" {
+			result := make([]keyValue, 0, len(pairs)+1)
+			result = append(result, pairs[:i+1]...)
+			result = append(result, iconKV)
+			result = append(result, pairs[i+1:]...)
+			return result
+		}
+	}
+
+	return append([]keyValue{iconKV}, pairs...)
 }
 
 func writeServerError(w http.ResponseWriter, err error) {

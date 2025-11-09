@@ -7,7 +7,7 @@ Use the `lang` query parameter to switch localisation (defaults to `EN`).
 
 ## GET `/stella/discs`
 
-Returns concise disc information suitable for listings.
+Returns concise disc information suitable for listings. Each entry now exposes an `icon` field pointing at `/stella/assets/...`.
 
 ```bash
 curl https://api.ennead.cc/stella/discs?lang=EN
@@ -20,18 +20,21 @@ Example:
   {
     "id": 211001,
     "name": "Crisp Morning",
+    "icon": "/stella/assets/outfit_1001_b.png",
     "star": 3,
     "element": "None"
   },
   {
     "id": 211002,
     "name": "Sunny Breeze",
+    "icon": "/stella/assets/outfit_1002_b.png",
     "star": 3,
     "element": "None"
   },
   {
     "id": 211003,
     "name": "Indigo Sunset",
+    "icon": "/stella/assets/outfit_1003_b.png",
     "star": 3,
     "element": "None"
   }
@@ -40,7 +43,7 @@ Example:
 
 ## GET `/stella/disc/{idOrName}`
 
-Returns full disc details. Accepts a numeric ID or case-insensitive name.
+Returns full disc details. Accepts a numeric ID or case-insensitive name. The response flattens the `textures` payload into top-level `icon`, `background`, and `variants` paths that correspond to the files served under `/stella/assets/`.
 
 ```bash
 curl https://api.ennead.cc/stella/disc/211001?lang=EN
@@ -52,6 +55,17 @@ Example (only representative sections shown):
 {
   "id": 211001,
   "name": "Crisp Morning",
+  "icon": "/stella/assets/outfit_1001_b.png",
+  "background": "/stella/assets/1001.png",
+  "variants": {
+    "base": "/stella/assets/outfit_1001.png",
+    "a": "/stella/assets/outfit_1001_a.png",
+    "b": "/stella/assets/outfit_1001_b.png",
+    "c": "/stella/assets/outfit_1001_c.png",
+    "d": "/stella/assets/outfit_1001_d.png",
+    "gacha": "/stella/assets/outfit_1001_gacha.png",
+    "default": "/stella/assets/outfit_1001_b.png"
+  },
   "star": 3,
   "element": "None",
   "tag": [

@@ -20,6 +20,7 @@ Example:
   {
     "id": 103,
     "name": "Amber",
+    "icon": "/stella/assets/Amber.png",
     "description": "The agile dual pistols allow Amber to sashay across the battlefield. Enemies who try to get close to her will turn into ashes long before they can reach her perimeter.",
     "grade": 4,
     "element": "Ignis",
@@ -36,6 +37,7 @@ Example:
   {
     "id": 107,
     "name": "Tilia",
+    "icon": "/stella/assets/Tilia.png",
     "description": "Tilia will always be charging at the forefront, using her shield to protect everyone. Guess only another Imperial Knight might break through her defense.",
     "grade": 4,
     "element": "Lux",
@@ -52,6 +54,7 @@ Example:
   {
     "id": 108,
     "name": "Kasimira",
+    "icon": "/stella/assets/Kasimira.png",
     "description": "Kasimira wields a brutal shotgun. She often puts herself in the line of fire in order to get a hit on her enemies. No matter what, her enemy will fall first.",
     "grade": 4,
     "element": "Ignis",
@@ -76,12 +79,23 @@ Accepts either a numeric ID or case-insensitive name. Returns the complete chara
 curl https://api.ennead.cc/stella/character/103?lang=EN
 ```
 
+Root-level `icon`, `portrait`, `background`, and `variants` fields now contain HTTP-ready paths (e.g. `"/stella/assets/Amber_portrait.png"`) that mirror the friendly filenames shown in the summary response.
+
 Example (long sections collapsed with `{...}`):
 
 ```json
 {
   "id": 103,
   "name": "Amber",
+  "icon": "/stella/assets/Amber.png",
+  "portrait": "/stella/assets/Amber_portrait.png",
+  "background": "/stella/assets/Amber_background.png",
+  "variants": {
+    "base": "/stella/assets/Amber_base.png",
+    "q": "/stella/assets/Amber_q.png",
+    "gd": "/stella/assets/Amber_gd.png",
+    "...": "..."
+  },
   "description": "The agile dual pistols allow Amber to sashay across the battlefield. Enemies who try to get close to her will turn into ashes long before they can reach her perimeter.",
   "grade": 4,
   "element": "Ignis",

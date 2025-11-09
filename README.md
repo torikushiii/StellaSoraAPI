@@ -9,16 +9,21 @@ Base path is `/stella/`. The status endpoint acts as the index and is not listed
 | Route | Description |
 | ----- | ----------- |
 | `GET /stella/` | Status, uptime (Unix epoch when the server started) and enumerated endpoints. |
-| `GET /stella/characters` | Lightweight character list; omits stats, skills, talents, upgrades, date events and gift preferences. |
+| `GET /stella/characters` | Lightweight character list; omits heavy fields but now includes an `icon` path (e.g. `/stella/assets/Amber.png`) for quick asset lookups. |
 | `GET /stella/character/{idOrName}` | Full character document (includes stats, skills, upgrades, etc.). |
-| `GET /stella/discs` | Disc summaries (id, name, star, element). |
-| `GET /stella/disc/{idOrName}` | Full disc record (tags, skills, stats, upgrades, duplicates). |
-| `GET /stella/banners` | Banner data with rate-up entries. |
+| `GET /stella/discs` | Disc summaries (id, name, star, element) plus an `icon` path for quick art lookups. |
+| `GET /stella/disc/{idOrName}` | Full disc record (tags, skills, stats, upgrades, duplicates) with flattened `icon`, `background`, and `variants` asset paths. |
+| `GET /stella/banners` | Banner data grouped into `current`/`permanent`/`upcoming`/`ended`, including rate-up entries, asset paths, and a `permanent` flag for timeless banners. |
 | `GET /stella/events` | Event schedule with timing windows and featured rewards. |
+| `GET /stella/assets/{friendlyName}` | Serves on-disk character textures using friendly aliases (e.g. `Amber_portrait.png`). |
 
 Common query parameters:
 
 - `lang`: two-letter region code (e.g. `EN`, `JP`, `KR`, `CN`, `TW`). Defaults to `EN` when omitted.
+
+Friendly asset names are derived from the in-game character name: `Amber.png` resolves to the default icon, `Amber_portrait.png` to the `sk` variant, `Amber_background.png` to the background, and other suffixes (`_q`, `_goods`, `_xl`, etc.) mirror the variant keys returned by the character payloads. Prefix requests with `/stella/assets/`, e.g. `GET /stella/assets/Amber_q.png`.
+
+The character detail payload flattens these assets into root-level `icon`, `portrait`, `background`, and `variants` fields whose values are direct `/stella/assets/...` URLs.
 
 Error handling:
 

@@ -25,16 +25,19 @@ type Server struct {
 	mux      *http.ServeMux
 	handlers handlers.Set
 	logger   *log.Logger
+	assets   http.Handler
 }
 
 func New(appInstance *app.App) *Server {
 	mux := http.NewServeMux()
 	handlerSet := handlers.New(appInstance)
+	logger := log.New(os.Stdout, "", log.LstdFlags)
 
 	srv := &Server{
 		mux:      mux,
 		handlers: handlerSet,
-		logger:   log.New(os.Stdout, "", log.LstdFlags),
+		logger:   logger,
+		assets:   newAssetHandler(appInstance, logger),
 	}
 
 	srv.registerRoutes()
@@ -85,6 +88,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /stella/disc/{identifier}", s.handlers.DiscDetail)
 	s.mux.HandleFunc("GET /stella/banners", s.handlers.Banner)
 	s.mux.HandleFunc("GET /stella/events", s.handlers.Events)
+	s.mux.Handle("GET /stella/assets/{path...}", s.assets)
 }
 
 type responseRecorder struct {

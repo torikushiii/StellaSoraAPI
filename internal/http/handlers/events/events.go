@@ -10,6 +10,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
+	"ss-api/internal/alias"
 	"ss-api/internal/app"
 )
 
@@ -29,6 +30,7 @@ type eventEntry struct {
 	Start       *string       `bson:"startTime" json:"startTime"`
 	End         *string       `bson:"endTime" json:"endTime"`
 	ClaimEnd    *string       `bson:"claimEndTime" json:"claimEndTime"`
+	Assets      *eventAssets  `bson:"textures" json:"assets,omitempty"`
 	Rewards     []eventReward `bson:"rewards" json:"rewards"`
 	Shops       []eventShop   `bson:"shops" json:"shops"`
 }
@@ -56,6 +58,49 @@ type eventShopGood struct {
 	Price       *int              `bson:"price" json:"price"`
 	Currency    *eventItemSummary `bson:"currency" json:"currency"`
 	Limit       *int              `bson:"limit" json:"limit"`
+}
+
+type eventAssets struct {
+	Banner        *string       `bson:"banner" json:"banner"`
+	TabBackground *string       `bson:"tabBackground" json:"tabBackground"`
+	friendly      friendlyAtlas `bson:"friendly" json:"-"`
+}
+
+type friendlyAtlas struct {
+	Banner        string `bson:"banner" json:"banner"`
+	TabBackground string `bson:"tabBackground" json:"tabBackground"`
+}
+
+func (a *eventAssets) normalize() *eventAssets {
+	if a == nil {
+		return nil
+	}
+
+	normalized := *a
+	normalized.Banner = resolveAssetPath(normalized.friendly.Banner, normalized.Banner)
+	normalized.TabBackground = resolveAssetPath(normalized.friendly.TabBackground, normalized.TabBackground)
+
+	return &normalized
+}
+
+func resolveAssetPath(friendlyAlias string, raw *string) *string {
+	var path string
+
+	switch {
+	case friendlyAlias != "":
+		path = alias.PathFromAlias(friendlyAlias)
+	case raw != nil:
+		path = alias.PathFromSource(*raw)
+	default:
+		return nil
+	}
+
+	if path == "" {
+		return nil
+	}
+
+	val := path
+	return &val
 }
 
 type eventItemSummary struct {
@@ -117,7 +162,10 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		results = append(results, doc.Entries...)
+		for _, entry := range doc.Entries {
+			entry.Assets = entry.Assets.normalize()
+			results = append(results, entry)
+		}
 	}
 
 	if err := cursor.Err(); err != nil {

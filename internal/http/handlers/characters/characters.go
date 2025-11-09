@@ -13,14 +13,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/bsontype"
 
+	"ss-api/internal/alias"
 	"ss-api/internal/app"
 )
 
 type Handler struct {
-	app    *app.App
-	dbName string
-	omit   map[string]struct{}
-	order  []string
+	app             *app.App
+	dbName          string
+	omit            map[string]struct{}
+	order           []string
+	icon            bool
+	flattenTextures bool
 }
 
 func New(appInstance *app.App) http.HandlerFunc {
@@ -38,25 +41,34 @@ func New(appInstance *app.App) http.HandlerFunc {
 			"skillUpgrades":   {},
 			"dateEvents":      {},
 			"giftPreferences": {},
+			"textures":        {},
 		},
+		true,
+		false,
 	)
 
 	return h.handleList
 }
 
 func NewDetail(appInstance *app.App) http.HandlerFunc {
-	h := newHandler(appInstance, nil)
+	h := newHandler(appInstance, nil, false, true)
 	return h.handleDetail
 }
 
-func newHandler(appInstance *app.App, omit map[string]struct{}) Handler {
+func newHandler(appInstance *app.App, omit map[string]struct{}, injectIcon bool, flattenTextures bool) Handler {
 	return Handler{
-		app:    appInstance,
-		dbName: appInstance.DatabaseName(),
-		omit:   omit,
+		app:             appInstance,
+		dbName:          appInstance.DatabaseName(),
+		omit:            omit,
+		icon:            injectIcon,
+		flattenTextures: flattenTextures,
 		order: []string{
 			"id",
 			"name",
+			"icon",
+			"portrait",
+			"background",
+			"variants",
 			"description",
 			"grade",
 			"element",
@@ -324,6 +336,8 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	}
 
 	pairs := make([]keyValue, 0, len(elements))
+	var nameValue string
+	var texturePairs []keyValue
 
 	for _, elem := range elements {
 		key := elem.Key()
@@ -336,10 +350,33 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 			return orderedDocument{}, err
 		}
 
+		if key == "name" {
+			if str, ok := value.(string); ok {
+				nameValue = str
+			}
+		}
+
+		if h.flattenTextures && key == "textures" {
+			if doc, ok := value.(orderedDocument); ok {
+				texturePairs = buildFriendlyTexturePairs(doc)
+			}
+			continue
+		}
+
 		pairs = append(pairs, keyValue{key: key, value: value})
 	}
 
+	if len(texturePairs) > 0 {
+		pairs = append(pairs, texturePairs...)
+	}
+
 	ordered := h.reorderPairs(pairs)
+
+	if h.icon {
+		if icon := alias.IconPath(nameValue); icon != "" {
+			ordered = insertIconField(ordered, icon)
+		}
+	}
 
 	return orderedDocument{pairs: ordered}, nil
 }
@@ -399,6 +436,107 @@ func (h Handler) reorderPairs(pairs []keyValue) []keyValue {
 	}
 
 	return ordered
+}
+
+func insertIconField(pairs []keyValue, icon string) []keyValue {
+	if icon == "" {
+		return pairs
+	}
+
+	iconKV := keyValue{key: "icon", value: icon}
+
+	for i, kv := range pairs {
+		if kv.key == "name" {
+			result := make([]keyValue, 0, len(pairs)+1)
+			result = append(result, pairs[:i+1]...)
+			result = append(result, iconKV)
+			result = append(result, pairs[i+1:]...)
+			return result
+		}
+	}
+
+	return append([]keyValue{iconKV}, pairs...)
+}
+
+func buildFriendlyTexturePairs(doc orderedDocument) []keyValue {
+	friendlyDoc, ok := lookupOrderedDocument(doc, "friendly")
+	if !ok || len(friendlyDoc.pairs) == 0 {
+		return nil
+	}
+
+	result := make([]keyValue, 0, 4)
+
+	if icon, ok := lookupString(friendlyDoc, "icon"); ok {
+		if path := alias.PathFromAlias(icon); path != "" {
+			result = append(result, keyValue{key: "icon", value: path})
+		}
+	}
+
+	if portrait, ok := lookupString(friendlyDoc, "portrait"); ok {
+		if path := alias.PathFromAlias(portrait); path != "" {
+			result = append(result, keyValue{key: "portrait", value: path})
+		}
+	}
+
+	if background, ok := lookupString(friendlyDoc, "background"); ok {
+		if path := alias.PathFromAlias(background); path != "" {
+			result = append(result, keyValue{key: "background", value: path})
+		}
+	}
+
+	if variantsDoc, ok := lookupOrderedDocument(friendlyDoc, "variants"); ok {
+		result = append(result, keyValue{key: "variants", value: pathifyOrderedDocument(variantsDoc)})
+	}
+
+	return result
+}
+
+func pathifyOrderedDocument(doc orderedDocument) orderedDocument {
+	if len(doc.pairs) == 0 {
+		return doc
+	}
+
+	pairs := copyKeyValues(doc.pairs)
+	for i, kv := range pairs {
+		switch v := kv.value.(type) {
+		case string:
+			pairs[i].value = alias.PathFromAlias(v)
+		case orderedDocument:
+			pairs[i].value = pathifyOrderedDocument(v)
+		}
+	}
+
+	return orderedDocument{pairs: pairs}
+}
+
+func lookupOrderedDocument(doc orderedDocument, key string) (orderedDocument, bool) {
+	for _, kv := range doc.pairs {
+		if kv.key == key {
+			if subDoc, ok := kv.value.(orderedDocument); ok {
+				return subDoc, true
+			}
+			break
+		}
+	}
+	return orderedDocument{}, false
+}
+
+func lookupString(doc orderedDocument, key string) (string, bool) {
+	for _, kv := range doc.pairs {
+		if kv.key == key {
+			if str, ok := kv.value.(string); ok && str != "" {
+				return str, true
+			}
+			break
+		}
+	}
+	return "", false
+}
+
+func copyKeyValues(src []keyValue) []keyValue {
+	dst := make([]keyValue, len(src))
+	copy(dst, src)
+	return dst
 }
 
 func writeServerError(w http.ResponseWriter, err error) {

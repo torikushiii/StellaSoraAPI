@@ -30,6 +30,7 @@ func New(cfg Config) *App {
 		startTime: time.Now(),
 		endpoints: []string{
 			"/stella/",
+			"/stella/assets/{friendlyName}",
 			"/stella/characters",
 			"/stella/character/{idOrName}",
 			"/stella/discs",
