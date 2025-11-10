@@ -8,6 +8,7 @@ import (
 	"ss-api/internal/http/handlers/characters"
 	"ss-api/internal/http/handlers/discs"
 	"ss-api/internal/http/handlers/events"
+	"ss-api/internal/http/handlers/news"
 	"ss-api/internal/http/handlers/status"
 )
 
@@ -19,6 +20,7 @@ type Set struct {
 	DiscDetail      http.HandlerFunc
 	Banner          http.HandlerFunc
 	Events          http.HandlerFunc
+	News            http.HandlerFunc
 }
 
 func New(appInstance *app.App) Set {
@@ -30,5 +32,6 @@ func New(appInstance *app.App) Set {
 		DiscDetail:      discs.NewDetail(appInstance),
 		Banner:          banner.New(appInstance),
 		Events:          events.New(appInstance),
+		News:            news.New(appInstance),
 	}
 }

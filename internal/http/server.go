@@ -88,6 +88,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /stella/disc/{identifier}", s.handlers.DiscDetail)
 	s.mux.HandleFunc("GET /stella/banners", s.handlers.Banner)
 	s.mux.HandleFunc("GET /stella/events", s.handlers.Events)
+	s.mux.HandleFunc("GET /stella/news/{category}", s.handlers.News)
+	s.mux.HandleFunc("GET /news/{category}", s.handlers.News)
 	s.mux.Handle("GET /stella/assets/{path...}", s.assets)
 }
 
