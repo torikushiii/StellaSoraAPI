@@ -110,6 +110,14 @@ type eventItemSummary struct {
 	Flavor      *string `bson:"flavor" json:"flavor"`
 }
 
+const endedRetentionWindow = 30 * 24 * time.Hour
+
+type groupedEvents struct {
+	Current  []eventEntry `json:"current"`
+	Upcoming []eventEntry `json:"upcoming"`
+	Ended    []eventEntry `json:"ended"`
+}
+
 func New(appInstance *app.App) http.HandlerFunc {
 	h := Handler{
 		app:    appInstance,
@@ -178,10 +186,57 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	grouped := categorizeEvents(results, time.Now().UTC())
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(results); err != nil {
+	if err := json.NewEncoder(w).Encode(grouped); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
+}
+
+func categorizeEvents(entries []eventEntry, reference time.Time) groupedEvents {
+	grouped := groupedEvents{
+		Current:  make([]eventEntry, 0),
+		Upcoming: make([]eventEntry, 0),
+		Ended:    make([]eventEntry, 0),
+	}
+
+	for _, entry := range entries {
+		start := parseTimestamp(entry.Start)
+		end := parseTimestamp(entry.End)
+
+		switch {
+		case end != nil && !reference.Before(*end):
+			if reference.Sub(*end) <= endedRetentionWindow {
+				grouped.Ended = append(grouped.Ended, entry)
+			}
+		case start != nil && reference.Before(*start):
+			grouped.Upcoming = append(grouped.Upcoming, entry)
+		default:
+			grouped.Current = append(grouped.Current, entry)
+		}
+	}
+
+	return grouped
+}
+
+func parseTimestamp(raw *string) *time.Time {
+	if raw == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		log.Printf("events: failed to parse time %q: %v", trimmed, err)
+		return nil
+	}
+
+	return &parsed
 }
 
 func writeServerError(w http.ResponseWriter, err error) {
