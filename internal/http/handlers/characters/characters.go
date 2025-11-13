@@ -70,7 +70,7 @@ func newHandler(appInstance *app.App, omit map[string]struct{}, injectIcon bool,
 			"background",
 			"variants",
 			"description",
-			"voice-actor",
+			"voiceActor",
 			"grade",
 			"element",
 			"position",
@@ -359,7 +359,7 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 		case "voiceActors":
 			if doc, ok := value.(orderedDocument); ok {
 				if actors := voiceActorMap(doc); len(actors) > 0 {
-					pairs = append(pairs, keyValue{key: "voice-actor", value: actors})
+					pairs = append(pairs, keyValue{key: "voiceActor", value: actors})
 				}
 			}
 			continue
