@@ -70,6 +70,7 @@ func newHandler(appInstance *app.App, omit map[string]struct{}, injectIcon bool,
 			"background",
 			"variants",
 			"description",
+			"voice-actor",
 			"grade",
 			"element",
 			"position",
@@ -350,10 +351,18 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 			return orderedDocument{}, err
 		}
 
-		if key == "name" {
+		switch key {
+		case "name":
 			if str, ok := value.(string); ok {
 				nameValue = str
 			}
+		case "voiceActors":
+			if doc, ok := value.(orderedDocument); ok {
+				if actors := voiceActorMap(doc); len(actors) > 0 {
+					pairs = append(pairs, keyValue{key: "voice-actor", value: actors})
+				}
+			}
+			continue
 		}
 
 		if h.flattenTextures && key == "textures" {
@@ -537,6 +546,24 @@ func copyKeyValues(src []keyValue) []keyValue {
 	dst := make([]keyValue, len(src))
 	copy(dst, src)
 	return dst
+}
+
+func voiceActorMap(doc orderedDocument) map[string]string {
+	if len(doc.pairs) == 0 {
+		return nil
+	}
+
+	result := make(map[string]string, len(doc.pairs))
+	for _, kv := range doc.pairs {
+		if name, ok := kv.value.(string); ok && name != "" {
+			result[kv.key] = name
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func writeServerError(w http.ResponseWriter, err error) {
