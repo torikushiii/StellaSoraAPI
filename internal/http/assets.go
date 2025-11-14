@@ -91,20 +91,40 @@ func (h *assetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *assetHandler) tryServePhysical(w http.ResponseWriter, r *http.Request, name string) bool {
 	candidates := candidateFilenames(name)
 	for _, candidate := range candidates {
-		fullPath := filepath.Join(h.assetsDir, candidate)
-		if !strings.HasPrefix(fullPath, h.assetsDir) {
-			continue
+		if target, ok := h.resolvePhysicalCandidate(candidate); ok {
+			http.ServeFile(w, r, target)
+			return true
 		}
-
-		info, err := os.Stat(fullPath)
-		if err != nil || info.IsDir() {
-			continue
-		}
-
-		http.ServeFile(w, r, fullPath)
-		return true
 	}
 	return false
+}
+
+func (h *assetHandler) resolvePhysicalCandidate(candidate string) (string, bool) {
+	fullPath := filepath.Join(h.assetsDir, candidate)
+	if !strings.HasPrefix(fullPath, h.assetsDir) {
+		return "", false
+	}
+
+	info, err := os.Stat(fullPath)
+	if err == nil && !info.IsDir() {
+		return fullPath, true
+	}
+
+	// Fall back to a case-insensitive lookup so Cover_123 and cover_123 map to the same file.
+	lower := strings.ToLower(candidate)
+	entries, err := os.ReadDir(h.assetsDir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.ToLower(entry.Name()) == lower {
+			return filepath.Join(h.assetsDir, entry.Name()), true
+		}
+	}
+	return "", false
 }
 
 func normalizeRequestPath(value string) string {
