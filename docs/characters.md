@@ -7,7 +7,9 @@ Append `?lang=JP` (for example) to request another localisation.
 
 ## GET `/stella/characters`
 
-Returns a trimmed set of fields suitable for directory views.
+Returns a trimmed set of fields suitable for directory views. Each entry now
+includes both the friendly `icon` and the `portrait` headshot path generated as
+`/stella/assets/head_{id}01_XL.png` for quick avatar rendering.
 
 ```bash
 curl https://api.ennead.cc/stella/characters?lang=EN
@@ -21,6 +23,7 @@ Example:
     "id": 103,
     "name": "Amber",
     "icon": "/stella/assets/Amber.png",
+    "portrait": "/stella/assets/head_10301_XL.png",
     "description": "The agile dual pistols allow Amber to sashay across the battlefield. Enemies who try to get close to her will turn into ashes long before they can reach her perimeter.",
     "grade": 4,
     "element": "Ignis",
@@ -38,6 +41,7 @@ Example:
     "id": 107,
     "name": "Tilia",
     "icon": "/stella/assets/Tilia.png",
+    "portrait": "/stella/assets/head_10701_XL.png",
     "description": "Tilia will always be charging at the forefront, using her shield to protect everyone. Guess only another Imperial Knight might break through her defense.",
     "grade": 4,
     "element": "Lux",
@@ -55,6 +59,7 @@ Example:
     "id": 108,
     "name": "Kasimira",
     "icon": "/stella/assets/Kasimira.png",
+    "portrait": "/stella/assets/head_10801_XL.png",
     "description": "Kasimira wields a brutal shotgun. She often puts herself in the line of fire in order to get a hit on her enemies. No matter what, her enemy will fall first.",
     "grade": 4,
     "element": "Ignis",

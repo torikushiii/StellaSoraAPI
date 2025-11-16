@@ -1,6 +1,7 @@
 package alias
 
 import (
+	"fmt"
 	"path"
 	"strings"
 )
@@ -51,6 +52,33 @@ func IconAlias(name string) string {
 // IconPath returns the HTTP path to the icon asset for a character.
 func IconPath(name string) string {
 	return PathFromAlias(IconAlias(name))
+}
+
+// PortraitAlias returns the canonical friendly filename for a character portrait.
+func PortraitAlias(name string) string {
+	base := BaseName(name)
+	if base == "" {
+		return ""
+	}
+	return base + "_portrait.png"
+}
+
+// PortraitPath returns the HTTP path to the portrait asset for a character.
+func PortraitPath(name string) string {
+	return PathFromAlias(PortraitAlias(name))
+}
+
+// HeadPortraitAlias returns the filename for a head portrait asset (e.g. head_10301_XL.png).
+func HeadPortraitAlias(id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("head_%d01_XL.png", id)
+}
+
+// HeadPortraitPath returns the HTTP path to a head portrait asset for the given ID.
+func HeadPortraitPath(id int64) string {
+	return PathFromAlias(HeadPortraitAlias(id))
 }
 
 // PathFromAlias prefixes a friendly filename with the asset base path.

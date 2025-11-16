@@ -330,6 +330,28 @@ func idMatches(value bson.RawValue, target int64) bool {
 	return false
 }
 
+func numericFromRawValue(value bson.RawValue) (int64, bool) {
+	switch value.Type {
+	case bsontype.Int32:
+		return int64(value.Int32()), true
+	case bsontype.Int64:
+		return value.Int64(), true
+	case bsontype.Double:
+		return int64(value.Double()), true
+	case bsontype.Decimal128:
+		if dec, ok := value.Decimal128OK(); ok {
+			if parsed, err := strconv.ParseInt(dec.String(), 10, 64); err == nil {
+				return parsed, true
+			}
+		}
+	case bsontype.String:
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(value.StringValue()), 10, 64); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
 func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	elements, err := raw.Elements()
 	if err != nil {
@@ -339,6 +361,7 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	pairs := make([]keyValue, 0, len(elements))
 	var nameValue string
 	var texturePairs []keyValue
+	var idValue int64
 
 	for _, elem := range elements {
 		key := elem.Key()
@@ -346,7 +369,8 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 			continue
 		}
 
-		value, err := h.convertRawValue(elem.Value())
+		rawValue := elem.Value()
+		value, err := h.convertRawValue(rawValue)
 		if err != nil {
 			return orderedDocument{}, err
 		}
@@ -355,6 +379,10 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 		case "name":
 			if str, ok := value.(string); ok {
 				nameValue = str
+			}
+		case "id":
+			if parsed, ok := numericFromRawValue(rawValue); ok {
+				idValue = parsed
 			}
 		case "voiceActors":
 			if doc, ok := value.(orderedDocument); ok {
@@ -382,9 +410,12 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	ordered := h.reorderPairs(pairs)
 
 	if h.icon {
-		if icon := alias.IconPath(nameValue); icon != "" {
-			ordered = insertIconField(ordered, icon)
+		iconPath := alias.IconPath(nameValue)
+		var portraitPath string
+		if idValue > 0 {
+			portraitPath = alias.HeadPortraitPath(idValue)
 		}
+		ordered = insertCharacterTextureFields(ordered, iconPath, portraitPath)
 	}
 
 	return orderedDocument{pairs: ordered}, nil
@@ -447,24 +478,40 @@ func (h Handler) reorderPairs(pairs []keyValue) []keyValue {
 	return ordered
 }
 
-func insertIconField(pairs []keyValue, icon string) []keyValue {
-	if icon == "" {
+func insertCharacterTextureFields(pairs []keyValue, icon, portrait string) []keyValue {
+	hasIcon := icon != ""
+	hasPortrait := portrait != ""
+	if !hasIcon && !hasPortrait {
 		return pairs
 	}
 
-	iconKV := keyValue{key: "icon", value: icon}
-
+	insertPos := 0
 	for i, kv := range pairs {
 		if kv.key == "name" {
-			result := make([]keyValue, 0, len(pairs)+1)
-			result = append(result, pairs[:i+1]...)
-			result = append(result, iconKV)
-			result = append(result, pairs[i+1:]...)
-			return result
+			insertPos = i + 1
+			break
 		}
 	}
 
-	return append([]keyValue{iconKV}, pairs...)
+	capacity := len(pairs)
+	if hasIcon {
+		capacity++
+	}
+	if hasPortrait {
+		capacity++
+	}
+
+	result := make([]keyValue, 0, capacity)
+	result = append(result, pairs[:insertPos]...)
+	if hasIcon {
+		result = append(result, keyValue{key: "icon", value: icon})
+	}
+	if hasPortrait {
+		result = append(result, keyValue{key: "portrait", value: portrait})
+	}
+	result = append(result, pairs[insertPos:]...)
+
+	return result
 }
 
 func buildFriendlyTexturePairs(doc orderedDocument) []keyValue {
