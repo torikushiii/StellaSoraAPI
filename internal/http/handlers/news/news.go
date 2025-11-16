@@ -3,6 +3,7 @@ package news
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -14,6 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jasonlvhit/gocron"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
 	"ss-api/internal/app"
@@ -23,6 +28,8 @@ const (
 	newsListEndpoint   = "https://stellasora.global/api/resource/news"
 	newsDetailEndpoint = "https://stellasora.global/api/resource/news/detail"
 	thumbnailCacheTTL  = 10 * time.Minute
+	newsCollectionName = "news_articles"
+	newsSyncPageSize   = 30
 )
 
 var (
@@ -36,9 +43,14 @@ var (
 )
 
 type Handler struct {
-	client  *http.Client
-	cache   map[int]cacheEntry
-	cacheMu sync.RWMutex
+	app        *app.App
+	dbName     string
+	client     *http.Client
+	cache      map[int]cacheEntry
+	cacheMu    sync.RWMutex
+	syncOnce   sync.Once
+	scheduler  *gocron.Scheduler
+	stopSignal chan bool
 }
 
 type cacheEntry struct {
@@ -47,12 +59,15 @@ type cacheEntry struct {
 	expires       time.Time
 }
 
-// New constructs a handler that proxies Stella Sora news lists, enriching thumbnails via the detail API.
-func New(_ *app.App) http.HandlerFunc {
+// New constructs the news handler and starts the periodic cache synchronizer.
+func New(appInstance *app.App) http.HandlerFunc {
 	h := &Handler{
+		app:    appInstance,
+		dbName: appInstance.DatabaseName(),
 		client: &http.Client{Timeout: 10 * time.Second},
 		cache:  make(map[int]cacheEntry),
 	}
+	h.startSyncLoop()
 	return h.handle
 }
 
@@ -86,32 +101,169 @@ func (h *Handler) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	endpoint, err := buildNewsListURL(newsType, index, size)
+	collectionDoc, err := h.ensureCategoryDocument(r.Context(), category, newsType)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to build upstream request")
+		log.Printf("news: failed to load cached data for %s: %v", category, err)
+		writeJSONError(w, http.StatusServiceUnavailable, "news cache unavailable")
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	rows := paginateRows(collectionDoc.Rows, index, size)
+
+	payload := newsListResponse{
+		Code:    0,
+		Message: "ok",
+		Data: newsListData{
+			Count: len(rows),
+			Rows:  rows,
+		},
+		Timestamp: json.Number(strconv.FormatInt(time.Now().UnixMilli(), 10)),
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("failed to write news response: %v", err)
+	}
+}
+
+type newsCategoryDocument struct {
+	Category  string    `bson:"category"`
+	Rows      []bson.M  `bson:"rows"`
+	UpdatedAt time.Time `bson:"updatedAt"`
+}
+
+func paginateRows(rows []bson.M, index, size int) []map[string]interface{} {
+	if len(rows) == 0 {
+		return []map[string]interface{}{}
+	}
+
+	if index <= 0 {
+		index = 1
+	}
+	if size <= 0 {
+		size = len(rows)
+	}
+
+	start := (index - 1) * size
+	if start >= len(rows) {
+		return []map[string]interface{}{}
+	}
+
+	end := start + size
+	if end > len(rows) {
+		end = len(rows)
+	}
+
+	paged := make([]map[string]interface{}, end-start)
+	for i := start; i < end; i++ {
+		paged[i-start] = rows[i]
+	}
+
+	return paged
+}
+
+func (h *Handler) ensureCategoryDocument(ctx context.Context, category, newsType string) (newsCategoryDocument, error) {
+	doc, err := h.loadCategoryDocument(ctx, category)
+	if err == nil {
+		return doc, nil
+	}
+
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		if refreshErr := h.refreshCategory(ctx, category, newsType); refreshErr != nil {
+			return newsCategoryDocument{}, refreshErr
+		}
+		return h.loadCategoryDocument(ctx, category)
+	}
+
+	return newsCategoryDocument{}, err
+}
+
+func (h *Handler) loadCategoryDocument(ctx context.Context, category string) (newsCategoryDocument, error) {
+	collection := h.newsCollection()
+	if collection == nil {
+		return newsCategoryDocument{}, errors.New("mongo client not initialised")
+	}
+
+	childCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	var doc newsCategoryDocument
+	err := collection.FindOne(childCtx, bson.M{"category": category}).Decode(&doc)
+	return doc, err
+}
+
+func (h *Handler) refreshCategory(ctx context.Context, category, newsType string) error {
+	rows, err := h.fetchCategoryRows(ctx, newsType)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to create upstream request")
-		return
+		return err
+	}
+
+	normalized := normalizeRows(rows)
+	collection := h.newsCollection()
+	if collection == nil {
+		return errors.New("mongo client not initialised")
+	}
+
+	childCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	update := bson.M{
+		"$set": bson.M{
+			"category":  category,
+			"rows":      normalized,
+			"updatedAt": time.Now().UTC(),
+		},
+	}
+
+	opts := options.Update().SetUpsert(true)
+	_, err = collection.UpdateOne(childCtx, bson.M{"category": category}, update, opts)
+	return err
+}
+
+func (h *Handler) fetchCategoryRows(ctx context.Context, newsType string) ([]map[string]interface{}, error) {
+	allRows := make([]map[string]interface{}, 0)
+	page := 1
+
+	for {
+		rows, upstreamCount, err := h.fetchNewsPage(ctx, newsType, page, newsSyncPageSize)
+		if err != nil {
+			return nil, err
+		}
+
+		allRows = append(allRows, rows...)
+		if upstreamCount < newsSyncPageSize {
+			break
+		}
+
+		page++
+	}
+
+	return allRows, nil
+}
+
+func (h *Handler) fetchNewsPage(ctx context.Context, newsType string, index, size int) ([]map[string]interface{}, int, error) {
+	endpoint, err := buildNewsListURL(newsType, index, size)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	childCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(childCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		writeJSONError(w, http.StatusBadGateway, "upstream news service unreachable")
-		return
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		writeJSONError(w, http.StatusBadGateway, "upstream news service returned an error")
-		return
+		return nil, 0, fmt.Errorf("upstream status %d", resp.StatusCode)
 	}
 
 	decoder := json.NewDecoder(resp.Body)
@@ -119,22 +271,118 @@ func (h *Handler) handle(w http.ResponseWriter, r *http.Request) {
 
 	var payload newsListResponse
 	if err := decoder.Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadGateway, "failed to decode upstream response")
-		return
+		return nil, 0, err
 	}
 
+	upstreamCount := len(payload.Data.Rows)
 	filteredRows := filterRowsByType(payload.Data.Rows, newsType)
-	payload.Data.Count = len(filteredRows)
-	payload.Data.Rows = filteredRows
 
-	if err := h.enrichThumbnails(r.Context(), payload.Data.Rows); err != nil {
+	if err := h.enrichThumbnails(ctx, filteredRows); err != nil {
 		log.Printf("news: thumbnail enrichment failed: %v", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		log.Printf("failed to write news response: %v", err)
+	return filteredRows, upstreamCount, nil
+}
+
+func normalizeRows(rows []map[string]interface{}) []bson.M {
+	normalized := make([]bson.M, len(rows))
+	for i, row := range rows {
+		normalized[i] = convertMap(row)
 	}
+	return normalized
+}
+
+func convertMap(row map[string]interface{}) bson.M {
+	normalized := make(bson.M, len(row))
+	for k, v := range row {
+		normalized[k] = convertJSONValue(v)
+	}
+	return normalized
+}
+
+func convertJSONValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return i
+		}
+		if f, err := val.Float64(); err == nil {
+			return f
+		}
+		return val.String()
+	case map[string]interface{}:
+		mapped := make(map[string]interface{}, len(val))
+		for k, nested := range val {
+			mapped[k] = convertJSONValue(nested)
+		}
+		return mapped
+	case []interface{}:
+		arr := make([]interface{}, len(val))
+		for i, nested := range val {
+			arr[i] = convertJSONValue(nested)
+		}
+		return arr
+	default:
+		return val
+	}
+}
+
+func (h *Handler) newsCollection() *mongo.Collection {
+	if h.app == nil {
+		return nil
+	}
+
+	client := h.app.MongoClient()
+	if client == nil {
+		return nil
+	}
+
+	return client.Database(h.dbName).Collection(newsCollectionName)
+}
+
+func (h *Handler) startSyncLoop() {
+	if h.app == nil {
+		return
+	}
+
+	h.syncOnce.Do(func() {
+		scheduler := gocron.NewScheduler()
+		scheduler.ChangeLoc(time.UTC)
+
+		start := nextHalfHour(time.Now().UTC())
+		job := scheduler.Every(30).Minutes().From(&start)
+		if err := job.Do(func() {
+			if err := h.refreshAll(context.Background()); err != nil {
+				log.Printf("news: scheduled sync failed: %v", err)
+			}
+		}); err != nil {
+			log.Printf("news: failed to schedule sync job: %v", err)
+			return
+		}
+
+		h.scheduler = scheduler
+		h.stopSignal = h.scheduler.Start()
+	})
+}
+
+func (h *Handler) refreshAll(ctx context.Context) error {
+	var errs []error
+
+	for category, newsType := range categoryTypeMap {
+		if err := h.refreshCategory(ctx, category, newsType); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", category, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func nextHalfHour(now time.Time) time.Time {
+	start := now.Truncate(30 * time.Minute)
+	if !start.After(now) {
+		start = start.Add(30 * time.Minute)
+	}
+	return start
 }
 
 func (h *Handler) enrichThumbnails(ctx context.Context, rows []map[string]interface{}) error {

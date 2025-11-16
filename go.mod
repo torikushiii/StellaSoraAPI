@@ -3,6 +3,7 @@ module ss-api
 go 1.22.4
 
 require (
+	github.com/jasonlvhit/gocron v0.0.1
 	go.mongodb.org/mongo-driver v1.15.0
 	golang.org/x/sync v0.1.0
 	gopkg.in/yaml.v3 v3.0.1
