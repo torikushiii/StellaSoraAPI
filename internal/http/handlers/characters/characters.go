@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,6 +18,8 @@ import (
 	"ss-api/internal/app"
 )
 
+const characterCacheTTL = 30 * time.Minute
+
 type Handler struct {
 	app             *app.App
 	dbName          string
@@ -24,6 +27,8 @@ type Handler struct {
 	order           []string
 	icon            bool
 	flattenTextures bool
+	listCache       *responseCache
+	detailCache     *responseCache
 }
 
 func New(appInstance *app.App) http.HandlerFunc {
@@ -90,6 +95,8 @@ func newHandler(appInstance *app.App, omit map[string]struct{}, injectIcon bool,
 			"upgrades",
 			"skillUpgrades",
 		},
+		listCache:   newResponseCache(characterCacheTTL),
+		detailCache: newResponseCache(characterCacheTTL),
 	}
 }
 
@@ -116,6 +123,14 @@ func (h Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lang = strings.ToUpper(lang)
+
+	if payload, ok := h.listCache.get(lang); ok {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if _, err := w.Write(payload); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+		return
+	}
 
 	cursor, err := collection.Find(ctx, bson.D{{Key: "region", Value: lang}})
 	if err != nil {
@@ -156,8 +171,16 @@ func (h Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseBytes, err := json.Marshal(entries)
+	if err != nil {
+		writeServerError(w, err)
+		return
+	}
+
+	h.listCache.set(lang, responseBytes)
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(entries); err != nil {
+	if _, err := w.Write(responseBytes); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
 }
@@ -190,6 +213,15 @@ func (h Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 		lang = "EN"
 	}
 	lang = strings.ToUpper(lang)
+
+	cacheKey := detailCacheKey(lang, identifier)
+	if payload, ok := h.detailCache.get(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if _, err := w.Write(payload); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+		return
+	}
 
 	cursor, err := collection.Find(ctx, bson.D{{Key: "region", Value: lang}})
 	if err != nil {
@@ -230,8 +262,16 @@ func (h Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseBytes, err := json.Marshal(result)
+	if err != nil {
+		writeServerError(w, err)
+		return
+	}
+
+	h.detailCache.set(cacheKey, responseBytes)
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(result); err != nil {
+	if _, err := w.Write(responseBytes); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
 }
@@ -624,6 +664,81 @@ func writeNotFound(w http.ResponseWriter, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error": message,
 	})
+}
+
+func detailCacheKey(lang, identifier string) string {
+	normalizedLang := strings.ToUpper(strings.TrimSpace(lang))
+	if normalizedLang == "" {
+		normalizedLang = "EN"
+	}
+	return normalizedLang + "|" + normalizeIdentifierKey(identifier)
+}
+
+func normalizeIdentifierKey(identifier string) string {
+	trimmed := strings.TrimSpace(identifier)
+	if trimmed == "" {
+		return ""
+	}
+	if numericValue, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return "#" + strconv.FormatInt(numericValue, 10)
+	}
+	return strings.ToLower(trimmed)
+}
+
+type responseCache struct {
+	ttl     time.Duration
+	mu      sync.RWMutex
+	entries map[string]cachedResponse
+}
+
+type cachedResponse struct {
+	data    []byte
+	expires time.Time
+}
+
+func newResponseCache(ttl time.Duration) *responseCache {
+	return &responseCache{
+		ttl:     ttl,
+		entries: make(map[string]cachedResponse),
+	}
+}
+
+func (c *responseCache) get(key string) ([]byte, bool) {
+	if c == nil || key == "" {
+		return nil, false
+	}
+
+	c.mu.RLock()
+	entry, ok := c.entries[key]
+	c.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+
+	if time.Now().After(entry.expires) {
+		c.mu.Lock()
+		delete(c.entries, key)
+		c.mu.Unlock()
+		return nil, false
+	}
+
+	return entry.data, true
+}
+
+func (c *responseCache) set(key string, data []byte) {
+	if c == nil || key == "" || len(data) == 0 {
+		return
+	}
+
+	payload := make([]byte, len(data))
+	copy(payload, data)
+
+	c.mu.Lock()
+	c.entries[key] = cachedResponse{
+		data:    payload,
+		expires: time.Now().Add(c.ttl),
+	}
+	c.mu.Unlock()
 }
 
 type orderedDocument struct {
