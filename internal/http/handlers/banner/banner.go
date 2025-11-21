@@ -27,6 +27,7 @@ type bannerEntry struct {
 	ID         int             `bson:"id" json:"id"`
 	Name       string          `bson:"name" json:"name"`
 	BannerType *string         `bson:"bannerType" json:"bannerType"`
+	Element    *string         `bson:"element" json:"element"`
 	Start      *string         `bson:"startTime" json:"startTime"`
 	End        *string         `bson:"endTime" json:"endTime"`
 	Permanent  bool            `json:"permanent,omitempty"`
@@ -58,8 +59,9 @@ type bannerRateUpPool struct {
 }
 
 type bannerFocusEntry struct {
-	ID   int     `bson:"id" json:"id"`
-	Name *string `bson:"name" json:"name"`
+	ID      int     `bson:"id" json:"id"`
+	Name    *string `bson:"name" json:"name"`
+	Element *string `bson:"element" json:"element"`
 }
 
 type groupedBanners struct {
@@ -133,6 +135,8 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 		writeNotFound(w, "no banner data found")
 		return
 	}
+
+	h.enrichBanners(ctx, results, lang)
 
 	response := categorizeBanners(results, time.Now().UTC())
 
@@ -235,4 +239,120 @@ func writeNotFound(w http.ResponseWriter, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error": message,
 	})
+}
+
+func (h Handler) enrichBanners(ctx context.Context, entries []bannerEntry, lang string) {
+	characterElements, err := h.fetchCharacterElements(ctx, lang)
+	if err != nil {
+		log.Printf("banner: failed to fetch character elements: %v", err)
+	}
+
+	discElements, err := h.fetchDiscElements(ctx, lang)
+	if err != nil {
+		log.Printf("banner: failed to fetch disc elements: %v", err)
+	}
+
+	for i := range entries {
+		enrichRateUp(entries[i].RateUp.FiveStar, characterElements, discElements)
+		enrichRateUp(entries[i].RateUp.FourStar, characterElements, discElements)
+	}
+}
+
+func enrichRateUp(pool *bannerRateUpPool, charElements, discElements map[int]string) {
+	if pool == nil {
+		return
+	}
+
+	for i := range pool.Entries {
+		if el, ok := charElements[pool.Entries[i].ID]; ok {
+			val := el
+			pool.Entries[i].Element = &val
+			continue
+		}
+
+		if el, ok := discElements[pool.Entries[i].ID]; ok {
+			val := el
+			pool.Entries[i].Element = &val
+		}
+	}
+}
+
+func (h Handler) fetchCharacterElements(ctx context.Context, lang string) (map[int]string, error) {
+	client := h.app.MongoClient()
+	if client == nil {
+		return nil, nil
+	}
+
+	collection := client.Database(h.dbName).Collection("characters")
+	cursor, err := collection.Find(ctx, bson.D{{Key: "region", Value: lang}})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	elements := make(map[int]string)
+
+	type entry struct {
+		ID      int    `bson:"id"`
+		Element string `bson:"element"`
+	}
+
+	type doc struct {
+		Entries []entry `bson:"entries"`
+	}
+
+	for cursor.Next(ctx) {
+		var d doc
+		if err := cursor.Decode(&d); err != nil {
+			return nil, err
+		}
+
+		for _, e := range d.Entries {
+			if e.Element != "" {
+				elements[e.ID] = e.Element
+			}
+		}
+	}
+
+	return elements, cursor.Err()
+}
+
+func (h Handler) fetchDiscElements(ctx context.Context, lang string) (map[int]string, error) {
+	client := h.app.MongoClient()
+	if client == nil {
+		return nil, nil
+	}
+
+	collection := client.Database(h.dbName).Collection("discs")
+	cursor, err := collection.Find(ctx, bson.D{{Key: "region", Value: lang}})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	elements := make(map[int]string)
+
+	type entry struct {
+		ID      int    `bson:"id"`
+		Element string `bson:"element"`
+	}
+
+	type doc struct {
+		Entries []entry `bson:"entries"`
+	}
+
+	for cursor.Next(ctx) {
+		var d doc
+		if err := cursor.Decode(&d); err != nil {
+			return nil, err
+		}
+
+		for _, e := range d.Entries {
+			if e.Element != "" {
+				elements[e.ID] = e.Element
+			}
+		}
+	}
+
+	return elements, cursor.Err()
 }
