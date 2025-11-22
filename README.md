@@ -2,6 +2,8 @@
 
 Stella Sora API is a Go-powered service that exposes game data through a clean JSON interface backed by MongoDB. It provides lightweight list endpoints for quick lookups and dedicated detail routes for heavier payloads.
 
+See it being fully used at [StellaBase](https://stella.ennead.cc)
+
 ## Available Routes
 
 Base path is `/stella/`. The status endpoint acts as the index and is not listed in its own payload.
