@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	newsListEndpoint   = "https://stellasora.global/api/resource/news"
-	newsDetailEndpoint = "https://stellasora.global/api/resource/news/detail"
-	thumbnailCacheTTL  = 10 * time.Minute
+	newsListPath      = "/api/resource/news"
+	newsDetailPath    = "/api/resource/news/detail"
+	thumbnailCacheTTL = 10 * time.Minute
 	newsCollectionName = "news_articles"
 	newsSyncPageSize   = 30
 )
@@ -39,6 +39,19 @@ var (
 		"news":    "news",
 		"events":  "activity",
 	}
+	regionBaseURLs = map[string]string{
+		"global": "https://stellasora.global",
+		"jp":     "https://stellasora.jp",
+		"tw":     "https://stellasora.stargazer-games.com",
+	}
+	langToRegion = map[string]string{
+		"en":    "global",
+		"us":    "global",
+		"jp":    "jp",
+		"ja":    "jp",
+		"tw":    "tw",
+		"zh-tw": "tw",
+	}
 	imgSrcPattern = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
 )
 
@@ -46,7 +59,7 @@ type Handler struct {
 	app        *app.App
 	dbName     string
 	client     *http.Client
-	cache      map[int]cacheEntry
+	cache      map[string]cacheEntry
 	cacheMu    sync.RWMutex
 	syncOnce   sync.Once
 	scheduler  *gocron.Scheduler
@@ -65,7 +78,7 @@ func New(appInstance *app.App) http.HandlerFunc {
 		app:    appInstance,
 		dbName: appInstance.DatabaseName(),
 		client: &http.Client{Timeout: 10 * time.Second},
-		cache:  make(map[int]cacheEntry),
+		cache:  make(map[string]cacheEntry),
 	}
 	h.startSyncLoop()
 	return h.handle
@@ -89,6 +102,22 @@ func (h *Handler) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lang := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("lang")))
+	if lang == "" {
+		lang = "en"
+	}
+
+	region, ok := langToRegion[lang]
+	if !ok {
+		// Fallback: check if the user provided the raw region key directly or an unknown lang
+		if _, valid := regionBaseURLs[lang]; valid {
+			region = lang
+		} else {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("unsupported language/region %q", lang))
+			return
+		}
+	}
+
 	index, err := parsePositiveQueryInt("index", r.URL.Query().Get("index"), 1)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -101,9 +130,9 @@ func (h *Handler) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collectionDoc, err := h.ensureCategoryDocument(r.Context(), category, newsType)
+	collectionDoc, err := h.ensureCategoryDocument(r.Context(), category, region, newsType)
 	if err != nil {
-		log.Printf("news: failed to load cached data for %s: %v", category, err)
+		log.Printf("news: failed to load cached data for %s (%s): %v", category, region, err)
 		writeJSONError(w, http.StatusServiceUnavailable, "news cache unavailable")
 		return
 	}
@@ -162,23 +191,24 @@ func paginateRows(rows []bson.M, index, size int) []map[string]interface{} {
 	return paged
 }
 
-func (h *Handler) ensureCategoryDocument(ctx context.Context, category, newsType string) (newsCategoryDocument, error) {
-	doc, err := h.loadCategoryDocument(ctx, category)
+func (h *Handler) ensureCategoryDocument(ctx context.Context, category, region, newsType string) (newsCategoryDocument, error) {
+	dbCategory := fmt.Sprintf("%s:%s", region, category)
+	doc, err := h.loadCategoryDocument(ctx, dbCategory)
 	if err == nil {
 		return doc, nil
 	}
 
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		if refreshErr := h.refreshCategory(ctx, category, newsType); refreshErr != nil {
+		if refreshErr := h.refreshCategory(ctx, category, region, newsType); refreshErr != nil {
 			return newsCategoryDocument{}, refreshErr
 		}
-		return h.loadCategoryDocument(ctx, category)
+		return h.loadCategoryDocument(ctx, dbCategory)
 	}
 
 	return newsCategoryDocument{}, err
 }
 
-func (h *Handler) loadCategoryDocument(ctx context.Context, category string) (newsCategoryDocument, error) {
+func (h *Handler) loadCategoryDocument(ctx context.Context, dbCategory string) (newsCategoryDocument, error) {
 	collection := h.newsCollection()
 	if collection == nil {
 		return newsCategoryDocument{}, errors.New("mongo client not initialised")
@@ -188,12 +218,12 @@ func (h *Handler) loadCategoryDocument(ctx context.Context, category string) (ne
 	defer cancel()
 
 	var doc newsCategoryDocument
-	err := collection.FindOne(childCtx, bson.M{"category": category}).Decode(&doc)
+	err := collection.FindOne(childCtx, bson.M{"category": dbCategory}).Decode(&doc)
 	return doc, err
 }
 
-func (h *Handler) refreshCategory(ctx context.Context, category, newsType string) error {
-	rows, err := h.fetchCategoryRows(ctx, newsType)
+func (h *Handler) refreshCategory(ctx context.Context, category, region, newsType string) error {
+	rows, err := h.fetchCategoryRows(ctx, region, newsType)
 	if err != nil {
 		return err
 	}
@@ -207,25 +237,26 @@ func (h *Handler) refreshCategory(ctx context.Context, category, newsType string
 	childCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	dbCategory := fmt.Sprintf("%s:%s", region, category)
 	update := bson.M{
 		"$set": bson.M{
-			"category":  category,
+			"category":  dbCategory,
 			"rows":      normalized,
 			"updatedAt": time.Now().UTC(),
 		},
 	}
 
 	opts := options.Update().SetUpsert(true)
-	_, err = collection.UpdateOne(childCtx, bson.M{"category": category}, update, opts)
+	_, err = collection.UpdateOne(childCtx, bson.M{"category": dbCategory}, update, opts)
 	return err
 }
 
-func (h *Handler) fetchCategoryRows(ctx context.Context, newsType string) ([]map[string]interface{}, error) {
+func (h *Handler) fetchCategoryRows(ctx context.Context, region, newsType string) ([]map[string]interface{}, error) {
 	allRows := make([]map[string]interface{}, 0)
 	page := 1
 
 	for {
-		rows, upstreamCount, err := h.fetchNewsPage(ctx, newsType, page, newsSyncPageSize)
+		rows, upstreamCount, err := h.fetchNewsPage(ctx, region, newsType, page, newsSyncPageSize)
 		if err != nil {
 			return nil, err
 		}
@@ -241,8 +272,8 @@ func (h *Handler) fetchCategoryRows(ctx context.Context, newsType string) ([]map
 	return allRows, nil
 }
 
-func (h *Handler) fetchNewsPage(ctx context.Context, newsType string, index, size int) ([]map[string]interface{}, int, error) {
-	endpoint, err := buildNewsListURL(newsType, index, size)
+func (h *Handler) fetchNewsPage(ctx context.Context, region, newsType string, index, size int) ([]map[string]interface{}, int, error) {
+	endpoint, err := buildNewsListURL(region, newsType, index, size)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -277,7 +308,7 @@ func (h *Handler) fetchNewsPage(ctx context.Context, newsType string, index, siz
 	upstreamCount := len(payload.Data.Rows)
 	filteredRows := filterRowsByType(payload.Data.Rows, newsType)
 
-	if err := h.enrichThumbnails(ctx, filteredRows); err != nil {
+	if err := h.enrichThumbnails(ctx, region, filteredRows); err != nil {
 		log.Printf("news: thumbnail enrichment failed: %v", err)
 	}
 
@@ -368,9 +399,11 @@ func (h *Handler) startSyncLoop() {
 func (h *Handler) refreshAll(ctx context.Context) error {
 	var errs []error
 
-	for category, newsType := range categoryTypeMap {
-		if err := h.refreshCategory(ctx, category, newsType); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", category, err))
+	for region := range regionBaseURLs {
+		for category, newsType := range categoryTypeMap {
+			if err := h.refreshCategory(ctx, category, region, newsType); err != nil {
+				errs = append(errs, fmt.Errorf("%s (%s): %w", category, region, err))
+			}
 		}
 	}
 
@@ -385,7 +418,7 @@ func nextHalfHour(now time.Time) time.Time {
 	return start
 }
 
-func (h *Handler) enrichThumbnails(ctx context.Context, rows []map[string]interface{}) error {
+func (h *Handler) enrichThumbnails(ctx context.Context, region string, rows []map[string]interface{}) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -406,7 +439,7 @@ func (h *Handler) enrichThumbnails(ctx context.Context, rows []map[string]interf
 				return nil
 			}
 
-			_, thumbnail, err := h.fetchNewsDetail(ctx, int(id))
+			_, thumbnail, err := h.fetchNewsDetail(ctx, region, int(id))
 			if err != nil || thumbnail == "" {
 				return nil
 			}
@@ -419,15 +452,15 @@ func (h *Handler) enrichThumbnails(ctx context.Context, rows []map[string]interf
 	return g.Wait()
 }
 
-func (h *Handler) fetchNewsDetail(ctx context.Context, id int) (newsDetail, string, error) {
-	if detail, hero, ok := h.cachedNews(id); ok {
+func (h *Handler) fetchNewsDetail(ctx context.Context, region string, id int) (newsDetail, string, error) {
+	if detail, hero, ok := h.cachedNews(region, id); ok {
 		return detail, hero, nil
 	}
 
 	childCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	endpoint, err := buildNewsDetailURL(id)
+	endpoint, err := buildNewsDetailURL(region, id)
 	if err != nil {
 		return newsDetail{}, "", err
 	}
@@ -459,7 +492,7 @@ func (h *Handler) fetchNewsDetail(ctx context.Context, id int) (newsDetail, stri
 		hero = img
 	}
 
-	h.storeNews(id, detail, hero)
+	h.storeNews(region, id, detail, hero)
 	return detail, hero, nil
 }
 
@@ -485,13 +518,18 @@ func parsePositiveQueryInt(name, value string, fallback int) (int, error) {
 	return n, nil
 }
 
-func buildNewsListURL(newsType string, index, size int) (string, error) {
+func buildNewsListURL(region, newsType string, index, size int) (string, error) {
+	base, ok := regionBaseURLs[region]
+	if !ok {
+		return "", fmt.Errorf("unknown region %q", region)
+	}
+
 	values := url.Values{}
 	values.Set("type", newsType)
 	values.Set("index", strconv.Itoa(index))
 	values.Set("size", strconv.Itoa(size))
 
-	endpoint, err := url.Parse(newsListEndpoint)
+	endpoint, err := url.Parse(base + newsListPath)
 	if err != nil {
 		return "", err
 	}
@@ -500,8 +538,13 @@ func buildNewsListURL(newsType string, index, size int) (string, error) {
 	return endpoint.String(), nil
 }
 
-func buildNewsDetailURL(id int) (string, error) {
-	endpoint, err := url.Parse(newsDetailEndpoint)
+func buildNewsDetailURL(region string, id int) (string, error) {
+	base, ok := regionBaseURLs[region]
+	if !ok {
+		return "", fmt.Errorf("unknown region %q", region)
+	}
+
+	endpoint, err := url.Parse(base + newsDetailPath)
 	if err != nil {
 		return "", err
 	}
@@ -566,9 +609,10 @@ func filterRowsByType(rows []map[string]interface{}, expectedType string) []map[
 	return filtered
 }
 
-func (h *Handler) cachedNews(id int) (newsDetail, string, bool) {
+func (h *Handler) cachedNews(region string, id int) (newsDetail, string, bool) {
+	key := fmt.Sprintf("%s:%d", region, id)
 	h.cacheMu.RLock()
-	entry, ok := h.cache[id]
+	entry, ok := h.cache[key]
 	h.cacheMu.RUnlock()
 	if !ok {
 		return newsDetail{}, "", false
@@ -576,7 +620,7 @@ func (h *Handler) cachedNews(id int) (newsDetail, string, bool) {
 
 	if time.Now().After(entry.expires) {
 		h.cacheMu.Lock()
-		delete(h.cache, id)
+		delete(h.cache, key)
 		h.cacheMu.Unlock()
 		return newsDetail{}, "", false
 	}
@@ -584,13 +628,14 @@ func (h *Handler) cachedNews(id int) (newsDetail, string, bool) {
 	return entry.detail, entry.heroThumbnail, true
 }
 
-func (h *Handler) storeNews(id int, detail newsDetail, hero string) {
+func (h *Handler) storeNews(region string, id int, detail newsDetail, hero string) {
 	if hero == "" {
 		hero = detail.Thumbnail
 	}
 
+	key := fmt.Sprintf("%s:%d", region, id)
 	h.cacheMu.Lock()
-	h.cache[id] = cacheEntry{
+	h.cache[key] = cacheEntry{
 		detail:        detail,
 		heroThumbnail: hero,
 		expires:       time.Now().Add(thumbnailCacheTTL),

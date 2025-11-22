@@ -15,15 +15,23 @@ Valid `category` values:
 
 - `index` – upstream page number (defaults to `1`).
 - `size` – page size (defaults to `6`, matching the official site).
+- `lang` – region/language selection (defaults to `en`).
+  - `en`, `us`: Global server
+  - `jp`, `ja`: Japan server
+  - `tw`, `zh-tw`: Taiwan/Traditional Chinese server
 
-If the upstream API ignores its `type` filter (which currently happens), the handler post-filters rows locally so each category still returns the right subset. The cache key is the news `id`, so articles fetched through one category are instantly reused by the others.
+If the upstream API ignores its `type` filter (which currently happens), the handler post-filters rows locally so each category still returns the right subset. The cache key is the news `id` scoped by region, so articles fetched through one category are instantly reused by the others within the same region.
 
 ## GET `/stella/news/{category}`
 
 Returns the upstream payload with enriched thumbnails. Each article's detail page is fetched (with up to four concurrent requests) to capture the first `<img>` inside the body, which replaces the placeholder `thumbnail`. Detail responses are cached for 10 minutes to limit upstream load.
 
 ```bash
+# Global news (default)
 curl "https://api.ennead.cc/stella/news/notices?index=1&size=6"
+
+# Japan news
+curl "https://api.ennead.cc/stella/news/notices?lang=jp"
 ```
 
 Example excerpt:
