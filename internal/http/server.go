@@ -58,6 +58,9 @@ func (s *Server) Handler() http.Handler {
 		if status == http.StatusNotFound && !strings.HasPrefix(r.URL.Path, "/stella") {
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/stella/assets/") || strings.HasPrefix(r.URL.Path, "/assets/") {
+			return
+		}
 		ua := r.Header.Get("User-Agent")
 		if ua == "" {
 			ua = "-"
