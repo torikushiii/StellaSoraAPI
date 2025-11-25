@@ -349,9 +349,7 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	ordered := h.reorderPairs(pairs)
 
 	if h.icon && !h.flattenTextures {
-		if textures.icon != "" {
-			ordered = insertIconField(ordered, textures.icon)
-		}
+		ordered = insertIconAndBase(ordered, textures.icon, textures.base)
 	}
 
 	return orderedDocument{pairs: ordered}, nil
@@ -416,6 +414,7 @@ func (h Handler) reorderPairs(pairs []keyValue) []keyValue {
 
 type textureBundle struct {
 	icon  string
+	base  string
 	pairs []keyValue
 }
 
@@ -434,6 +433,9 @@ func buildDiscTextureBundle(doc orderedDocument) textureBundle {
 
 	if variants := buildVariantDocument(doc, friendlyDoc, hasFriendly); len(variants.pairs) > 0 {
 		bundle.pairs = append(bundle.pairs, keyValue{key: "variants", value: variants})
+		if base, ok := lookupString(variants, "base"); ok {
+			bundle.base = base
+		}
 	}
 
 	return bundle
@@ -523,24 +525,30 @@ func copyKeyValues(src []keyValue) []keyValue {
 	return dst
 }
 
-func insertIconField(pairs []keyValue, icon string) []keyValue {
-	if icon == "" {
+func insertIconAndBase(pairs []keyValue, icon, base string) []keyValue {
+	toInsert := make([]keyValue, 0, 2)
+	if icon != "" {
+		toInsert = append(toInsert, keyValue{key: "icon", value: icon})
+	}
+	if base != "" {
+		toInsert = append(toInsert, keyValue{key: "base", value: base})
+	}
+
+	if len(toInsert) == 0 {
 		return pairs
 	}
 
-	iconKV := keyValue{key: "icon", value: icon}
-
 	for i, kv := range pairs {
 		if kv.key == "name" {
-			result := make([]keyValue, 0, len(pairs)+1)
+			result := make([]keyValue, 0, len(pairs)+len(toInsert))
 			result = append(result, pairs[:i+1]...)
-			result = append(result, iconKV)
+			result = append(result, toInsert...)
 			result = append(result, pairs[i+1:]...)
 			return result
 		}
 	}
 
-	return append([]keyValue{iconKV}, pairs...)
+	return append(toInsert, pairs...)
 }
 
 func writeServerError(w http.ResponseWriter, err error) {
