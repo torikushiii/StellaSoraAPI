@@ -24,21 +24,28 @@ type eventDocument struct {
 }
 
 type eventEntry struct {
-	ID          int           `bson:"id" json:"id"`
-	Title       *string       `bson:"title" json:"title"`
-	Description *string       `bson:"description" json:"description"`
-	Start       *string       `bson:"startTime" json:"startTime"`
-	End         *string       `bson:"endTime" json:"endTime"`
-	ClaimEnd    *string       `bson:"claimEndTime" json:"claimEndTime"`
-	Assets      *eventAssets  `bson:"textures" json:"assets,omitempty"`
-	Rewards     []eventReward `bson:"rewards" json:"rewards"`
-	Shops       []eventShop   `bson:"shops" json:"shops"`
+	ID          int              `bson:"id" json:"id"`
+	Title       *string          `bson:"title" json:"title"`
+	Description *string          `bson:"description" json:"description"`
+	Start       *string          `bson:"startTime" json:"startTime"`
+	End         *string          `bson:"endTime" json:"endTime"`
+	ClaimEnd    *string          `bson:"claimEndTime" json:"claimEndTime"`
+	Textures    *eventAssets     `bson:"textures" json:"textures,omitempty"`
+	Rewards     []eventReward    `bson:"rewards" json:"rewards"`
+	Milestones  []eventMilestone `bson:"milestones" json:"milestones"`
+	Shops       []eventShop      `bson:"shops" json:"shops"`
 }
 
 type eventReward struct {
 	ID       int     `bson:"id" json:"id"`
 	Name     *string `bson:"name" json:"name"`
 	Category string  `bson:"category" json:"category"`
+	Quantity *int    `bson:"quantity,omitempty" json:"quantity,omitempty"`
+}
+
+type eventMilestone struct {
+	Description *string       `bson:"description" json:"description"`
+	Rewards     []eventReward `bson:"rewards" json:"rewards"`
 }
 
 type eventShop struct {
@@ -171,7 +178,7 @@ func (h Handler) handle(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, entry := range doc.Entries {
-			entry.Assets = entry.Assets.normalize()
+			entry.Textures = entry.Textures.normalize()
 			results = append(results, entry)
 		}
 	}
