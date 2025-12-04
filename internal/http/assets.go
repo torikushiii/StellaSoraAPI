@@ -32,6 +32,10 @@ type assetHandler struct {
 	assetsDir string
 	resolver  *assetResolver
 	logger    *log.Logger
+
+	mu        sync.RWMutex
+	dirCache  map[string]string
+	dirLoaded bool
 }
 
 func newAssetHandler(appInstance *app.App, logger *log.Logger) *assetHandler {
@@ -47,7 +51,8 @@ func newAssetHandler(appInstance *app.App, logger *log.Logger) *assetHandler {
 			dbName:    appInstance.DatabaseName(),
 			assetsDir: dir,
 		},
-		logger: logger,
+		logger:   logger,
+		dirCache: make(map[string]string),
 	}
 }
 
@@ -110,8 +115,29 @@ func (h *assetHandler) resolvePhysicalCandidate(candidate string) (string, bool)
 		return fullPath, true
 	}
 
-	// Fall back to a case-insensitive lookup so Cover_123 and cover_123 map to the same file.
-	lower := strings.ToLower(candidate)
+	// Fall back to a case-insensitive lookup using cache
+	h.mu.RLock()
+	if h.dirLoaded {
+		target, ok := h.dirCache[strings.ToLower(candidate)]
+		h.mu.RUnlock()
+		if ok {
+			return filepath.Join(h.assetsDir, target), true
+		}
+		return "", false
+	}
+	h.mu.RUnlock()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.dirLoaded {
+		target, ok := h.dirCache[strings.ToLower(candidate)]
+		if ok {
+			return filepath.Join(h.assetsDir, target), true
+		}
+		return "", false
+	}
+
 	entries, err := os.ReadDir(h.assetsDir)
 	if err != nil {
 		return "", false
@@ -120,10 +146,15 @@ func (h *assetHandler) resolvePhysicalCandidate(candidate string) (string, bool)
 		if entry.IsDir() {
 			continue
 		}
-		if strings.ToLower(entry.Name()) == lower {
-			return filepath.Join(h.assetsDir, entry.Name()), true
-		}
+		h.dirCache[strings.ToLower(entry.Name())] = entry.Name()
 	}
+	h.dirLoaded = true
+
+	target, ok := h.dirCache[strings.ToLower(candidate)]
+	if ok {
+		return filepath.Join(h.assetsDir, target), true
+	}
+
 	return "", false
 }
 
