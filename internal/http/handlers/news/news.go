@@ -43,6 +43,7 @@ var (
 		"global": "https://stellasora.global",
 		"jp":     "https://stellasora.jp",
 		"tw":     "https://stellasora.stargazer-games.com",
+		"cn":     "https://stellasora.yostar.cn",
 	}
 	langToRegion = map[string]string{
 		"en":    "global",
@@ -51,6 +52,9 @@ var (
 		"ja":    "jp",
 		"tw":    "tw",
 		"zh-tw": "tw",
+		"cn":    "cn",
+		"zh-cn": "cn",
+		"zh":    "cn",
 	}
 	imgSrcPattern = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
 )
