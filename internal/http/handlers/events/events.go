@@ -117,8 +117,6 @@ type eventItemSummary struct {
 	Flavor      *string `bson:"flavor" json:"flavor"`
 }
 
-const endedRetentionWindow = 30 * 24 * time.Hour
-
 type groupedEvents struct {
 	Current  []eventEntry `json:"current"`
 	Upcoming []eventEntry `json:"upcoming"`
@@ -214,9 +212,7 @@ func categorizeEvents(entries []eventEntry, reference time.Time) groupedEvents {
 
 		switch {
 		case end != nil && !reference.Before(*end):
-			if reference.Sub(*end) <= endedRetentionWindow {
-				grouped.Ended = append(grouped.Ended, entry)
-			}
+			grouped.Ended = append(grouped.Ended, entry)
 		case start != nil && reference.Before(*start):
 			grouped.Upcoming = append(grouped.Upcoming, entry)
 		default:
