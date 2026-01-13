@@ -8,6 +8,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"ss-api/internal/alias"
 )
 
 type Config struct {
@@ -113,6 +115,8 @@ func (a *App) initMongo(ctx context.Context) error {
 		}
 
 		a.mongoClient = client
+
+		alias.InitCharacterNamesFromDB(client, a.config.MongoDatabase)
 	})
 
 	return err

@@ -400,7 +400,6 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	}
 
 	pairs := make([]keyValue, 0, len(elements))
-	var nameValue string
 	var texturePairs []keyValue
 	var idValue int64
 
@@ -417,10 +416,6 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 		}
 
 		switch key {
-		case "name":
-			if str, ok := value.(string); ok {
-				nameValue = str
-			}
 		case "id":
 			if parsed, ok := numericFromRawValue(rawValue); ok {
 				idValue = parsed
@@ -451,9 +446,10 @@ func (h Handler) convertDocument(raw bson.Raw) (orderedDocument, error) {
 	ordered := h.reorderPairs(pairs)
 
 	if h.icon {
-		iconPath := alias.IconPath(nameValue)
+		var iconPath string
 		var portraitPath string
 		if idValue > 0 {
+			iconPath = alias.IconPathFromID(idValue)
 			portraitPath = alias.HeadPortraitPath(idValue)
 		}
 		ordered = insertCharacterTextureFields(ordered, iconPath, portraitPath)
